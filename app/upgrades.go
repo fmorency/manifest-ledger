@@ -11,7 +11,7 @@ import (
 
 // Upgrades list of chain upgrades
 var Upgrades = []upgrades.Upgrade{
-	supercalifragilisticexpialidocious.NewUpgrade("v1"),
+	supercalifragilisticexpialidocious.NewUpgrade("supercalifragilisticexpialidocious"),
 }
 
 // RegisterUpgradeHandlers registers the chain upgrade handlers
