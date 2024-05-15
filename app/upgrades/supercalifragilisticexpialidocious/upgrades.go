@@ -4,7 +4,6 @@ import (
 	"context"
 
 	storetypes "cosmossdk.io/store/types"
-	"cosmossdk.io/x/nft"
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/liftedinit/manifest-ledger/app/upgrades"
@@ -16,9 +15,7 @@ func NewUpgrade(semver string) upgrades.Upgrade {
 		UpgradeName:          semver,
 		CreateUpgradeHandler: CreateUpgradeHandler,
 		StoreUpgrades: storetypes.StoreUpgrades{
-			Added: []string{
-				nft.ModuleName,
-			},
+			Added:   []string{},
 			Deleted: []string{},
 		},
 	}
