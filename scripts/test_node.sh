@@ -9,6 +9,7 @@
 
 export KEY="user1"
 export KEY2="user2"
+export KEY3="gas-station"
 
 export CHAIN_ID=${CHAIN_ID:-"local-1"}
 export MONIKER="localval"
@@ -47,10 +48,12 @@ from_scratch () {
   # remove existing daemon.
   rm -rf $HOME_DIR && echo "Removed $HOME_DIR"
 
-  # manifest1hj5fveer5cjtn4wd6wstzugjfdxzl0xp8ws9ct
+  # manifest1hj5fveer5cjtn4wd6wstzugjfdxzl0xp8ws9ct -- user1
   echo "decorate bright ozone fork gallery riot bus exhaust worth way bone indoor calm squirrel merry zero scheme cotton until shop any excess stage laundry" | BINARY keys add $KEY --keyring-backend $KEYRING --algo $KEYALGO --recover
-  # manifest1efd63aw40lxf3n4mhf7dzhjkr453axurm6rp3z
+  # manifest1efd63aw40lxf3n4mhf7dzhjkr453axurm6rp3z -- user2
   echo "wealth flavor believe regret funny network recall kiss grape useless pepper cram hint member few certain unveil rather brick bargain curious require crowd raise" | BINARY keys add $KEY2 --keyring-backend $KEYRING --algo $KEYALGO --recover
+  # manifest1g292xgmcclhq4au5p7580m2s3f8tpwjra644jm -- Gas station
+  echo "myself bamboo retire day exile cancel peanut agree come method odor innocent welcome royal engage key surprise practice capable sauce orient young divert mirror" | BINARY keys add  $KEY3 --keyring-backend $KEYRING --algo $KEYALGO --recover
 
   BINARY init $MONIKER --chain-id $CHAIN_ID --default-denom=umfx
 
@@ -78,6 +81,10 @@ from_scratch () {
   update_test_genesis '.app_state["group"]["group_members"]=[{"group_id": "1", "member": {"address": "manifest1hj5fveer5cjtn4wd6wstzugjfdxzl0xp8ws9ct", "weight": "1", "metadata": "user1", "added_at": "2024-05-16T15:10:54.372190727Z"}}, {"group_id": "1", "member": {"address": "manifest1efd63aw40lxf3n4mhf7dzhjkr453axurm6rp3z", "weight": "1", "metadata": "user2", "added_at": "2024-05-16T15:10:54.372190727Z"}}]'
   update_test_genesis '.app_state["group"]["group_policy_seq"]="1"'
   update_test_genesis '.app_state["group"]["group_policies"]=[{"address": "manifest1afk9zr2hn2jsac63h4hm60vl9z3e5u69gndzf7c99cqge3vzwjzsfmy9qj", "group_id": "1", "admin": "manifest1afk9zr2hn2jsac63h4hm60vl9z3e5u69gndzf7c99cqge3vzwjzsfmy9qj", "metadata": "AQ==", "version": "2", "decision_policy": { "@type": "/cosmos.group.v1.ThresholdDecisionPolicy", "threshold": "1", "windows": {"voting_period": "30s", "min_execution_period": "0s"}}, "created_at": "2024-05-16T15:10:54.372190727Z"}]'
+
+  # feegrant
+  # user1 gas fees to be paid by gas station
+  update_test_genesis '.app_state["feegrant"]["allowances"]=[{"granter": "manifest1g292xgmcclhq4au5p7580m2s3f8tpwjra644jm","grantee": "manifest1hj5fveer5cjtn4wd6wstzugjfdxzl0xp8ws9ct", "allowance": {"@type": "/cosmos.feegrant.v1beta1.AllowedMsgAllowance", "allowance": {"@type": "/cosmos.feegrant.v1beta1.BasicAllowance", "spend_limit": [], "expiration": null}, "allowed_messages": ["/cosmos.bank.v1beta1.MsgSend"]}}]'
 
   # Custom Modules
 
@@ -111,6 +118,7 @@ from_scratch () {
 #  BINARY genesis add-genesis-account $KEY 1000000upoa,10000000umfx,1000utest,1000000000000000000000factory/manifest1afk9zr2hn2jsac63h4hm60vl9z3e5u69gndzf7c99cqge3vzwjzsfmy9qj/uspdt,100000000000000000000000factory/manifest1afk9zr2hn2jsac63h4hm60vl9z3e5u69gndzf7c99cqge3vzwjzsfmy9qj/uabus --keyring-backend $KEYRING
   BINARY genesis add-genesis-account $KEY 1000000upoa,10000000umfx,1000utest --keyring-backend $KEYRING
   BINARY genesis add-genesis-account $KEY2 100000umfx,1000utest --keyring-backend $KEYRING
+  BINARY genesis add-genesis-account $KEY3 10000000umfx --keyring-backend $KEYRING
 
   # Set 1 POAToken -> user
   GenTxFlags="--commission-rate=0.0 --commission-max-rate=1.0 --commission-max-change-rate=0.1"
@@ -156,6 +164,6 @@ sed -i 's/address = ":8080"/address = "0.0.0.0:'$ROSETTA'"/g' $HOME_DIR/config/a
 sed -i 's/timeout_commit = "5s"/timeout_commit = "'$TIMEOUT_COMMIT'"/g' $HOME_DIR/config/config.toml
 
 # Start the node
-BINARY start --pruning=nothing  --minimum-gas-prices=0umfx --rpc.laddr="tcp://0.0.0.0:$RPC"
-#cosmovisor init $(which $BINARY)
-#cosmovisor run start --pruning=nothing  --minimum-gas-prices=0umfx --rpc.laddr="tcp://0.0.0.0:$RPC" --home $HOME_DIR
+#BINARY start --pruning=nothing  --minimum-gas-prices=0umfx --rpc.laddr="tcp://0.0.0.0:$RPC"
+cosmovisor init $(which $BINARY)
+cosmovisor run start --pruning=nothing  --minimum-gas-prices=0.0001umfx --rpc.laddr="tcp://0.0.0.0:$RPC" --home $HOME_DIR
