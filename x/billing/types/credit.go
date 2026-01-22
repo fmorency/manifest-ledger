@@ -1,5 +1,35 @@
 package types
 
+// Credit Reservation System
+//
+// The credit reservation system prevents overbooking by tracking reserved amounts
+// per tenant. This ensures that when a lease is created, sufficient credit is
+// guaranteed for at least min_lease_duration seconds of operation.
+//
+// # Invariant
+//
+// The following invariant must always hold for each tenant:
+//
+//	CreditAccount.ReservedAmounts == SUM(GetLeaseReservationAmount(lease, params.MinLeaseDuration))
+//	                                 for all PENDING and ACTIVE leases of the tenant
+//
+// # Reservation Lifecycle
+//
+//   - ADDED: When a lease is created (enters PENDING state)
+//   - MAINTAINED: When a lease is acknowledged (transitions to ACTIVE state)
+//   - RELEASED: When a lease transitions to CLOSED, REJECTED, or EXPIRED
+//
+// # Available Credit Calculation
+//
+//	AvailableCredit = CreditBalance - ReservedAmounts
+//
+// New leases can only be created if AvailableCredit >= NewLeaseReservation for all denoms.
+//
+// # Parameter Change Protection
+//
+// Each lease stores MinLeaseDurationAtCreation to ensure consistent reservation
+// calculation regardless of subsequent governance changes to the MinLeaseDuration parameter.
+
 import (
 	"crypto/sha256"
 
@@ -128,4 +158,51 @@ func GetLeaseReservationAmount(lease *Lease, minLeaseDuration uint64) sdk.Coins 
 	}
 
 	return CalculateLeaseReservation(lease.Items, duration)
+}
+
+// ReleaseLeaseReservation releases the reservation for a lease from a credit account.
+// This is called when a lease transitions out of PENDING or ACTIVE state (close, reject, cancel, expire).
+// The credit account's ReservedAmounts is updated in place.
+func ReleaseLeaseReservation(creditAccount *CreditAccount, lease *Lease, minLeaseDuration uint64) {
+	reservationAmount := GetLeaseReservationAmount(lease, minLeaseDuration)
+	creditAccount.ReservedAmounts = SubtractReservation(creditAccount.ReservedAmounts, reservationAmount)
+}
+
+// CheckReservationRelease checks if releasing a reservation would cause underflow.
+// Returns a map of denoms that would underflow and the amount of underflow for each.
+// An empty map indicates the release is safe with no underflow.
+// This is useful for observability/logging at the keeper level.
+func CheckReservationRelease(reserved, toRelease sdk.Coins) map[string]sdkmath.Int {
+	underflows := make(map[string]sdkmath.Int)
+
+	for _, coin := range toRelease {
+		reservedAmount := reserved.AmountOf(coin.Denom)
+		if coin.Amount.GT(reservedAmount) {
+			// Would underflow: releasing more than reserved
+			underflows[coin.Denom] = coin.Amount.Sub(reservedAmount)
+		}
+	}
+
+	return underflows
+}
+
+// CalculateExpectedReservationsByTenant computes the expected total reservation per tenant
+// from a list of leases. Only PENDING and ACTIVE leases contribute to reservations.
+// This is useful for genesis validation and debugging/testing.
+func CalculateExpectedReservationsByTenant(leases []Lease, fallbackMinLeaseDuration uint64) map[string]sdk.Coins {
+	expected := make(map[string]sdk.Coins)
+
+	for i := range leases {
+		lease := &leases[i]
+		if lease.State == LEASE_STATE_PENDING || lease.State == LEASE_STATE_ACTIVE {
+			reservation := GetLeaseReservationAmount(lease, fallbackMinLeaseDuration)
+			if existing, ok := expected[lease.Tenant]; ok {
+				expected[lease.Tenant] = existing.Add(reservation...)
+			} else {
+				expected[lease.Tenant] = reservation
+			}
+		}
+	}
+
+	return expected
 }

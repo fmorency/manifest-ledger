@@ -761,6 +761,29 @@ func (k *Keeper) DecrementPendingLeaseCount(ca *types.CreditAccount, leaseUUID s
 	}
 }
 
+// ReleaseLeaseReservation releases the reservation for a lease from a credit account.
+// It checks for potential underflow (releasing more than reserved) and logs a warning
+// if detected, which indicates a data inconsistency. The release proceeds regardless
+// to maintain forward progress (SubtractReservation clamps to zero).
+func (k *Keeper) ReleaseLeaseReservation(ca *types.CreditAccount, lease *types.Lease, minLeaseDuration uint64) {
+	reservationAmount := types.GetLeaseReservationAmount(lease, minLeaseDuration)
+
+	// Check for underflow before release (for observability)
+	underflows := types.CheckReservationRelease(ca.ReservedAmounts, reservationAmount)
+	if len(underflows) > 0 {
+		k.logger.Warn("data inconsistency: reservation release would underflow",
+			"tenant", ca.Tenant,
+			"lease_uuid", lease.Uuid,
+			"underflows", underflows,
+			"current_reserved", ca.ReservedAmounts.String(),
+			"attempting_to_release", reservationAmount.String(),
+		)
+	}
+
+	// Proceed with release (clamps negative values to zero)
+	types.ReleaseLeaseReservation(ca, lease, minLeaseDuration)
+}
+
 // CountPendingLeasesByTenant counts the number of pending leases for a tenant.
 // This method uses the CreditAccount's cached PendingLeaseCount for O(1) performance.
 // Falls back to iterating leases if credit account doesn't exist.
@@ -984,8 +1007,7 @@ func (k *Keeper) ExpirePendingLease(ctx context.Context, lease *types.Lease) err
 		k.DecrementPendingLeaseCount(&creditAccount, lease.Uuid)
 
 		// Release reservation for this lease (PENDING leases have reservations)
-		reservationAmount := types.GetLeaseReservationAmount(lease, params.MinLeaseDuration)
-		creditAccount.ReservedAmounts = types.SubtractReservation(creditAccount.ReservedAmounts, reservationAmount)
+		k.ReleaseLeaseReservation(&creditAccount, lease, params.MinLeaseDuration)
 
 		if err := k.SetCreditAccount(cacheCtx, creditAccount); err != nil {
 			return err

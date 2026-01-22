@@ -536,8 +536,7 @@ func (ms msgServer) CloseLease(ctx context.Context, msg *types.MsgCloseLease) (*
 		ms.k.DecrementActiveLeaseCount(&creditAccount, leases[i].Uuid)
 
 		// Release reservation for this lease
-		reservationAmount := types.GetLeaseReservationAmount(&leases[i], params.MinLeaseDuration)
-		creditAccount.ReservedAmounts = types.SubtractReservation(creditAccount.ReservedAmounts, reservationAmount)
+		ms.k.ReleaseLeaseReservation(&creditAccount, &leases[i], params.MinLeaseDuration)
 
 		creditAccounts[leases[i].Tenant] = creditAccount
 
@@ -713,8 +712,7 @@ func (ms msgServer) withdrawFromLeases(ctx context.Context, msg *types.MsgWithdr
 					ms.k.DecrementActiveLeaseCount(&creditAccount, lease.Uuid)
 
 					// Release reservation for this lease (ACTIVE leases have reservations)
-					reservationAmount := types.GetLeaseReservationAmount(lease, params.MinLeaseDuration)
-					creditAccount.ReservedAmounts = types.SubtractReservation(creditAccount.ReservedAmounts, reservationAmount)
+					ms.k.ReleaseLeaseReservation(&creditAccount, lease, params.MinLeaseDuration)
 
 					if err := ms.k.SetCreditAccount(cacheCtx, creditAccount); err != nil {
 						return nil, err
@@ -927,8 +925,7 @@ func (ms msgServer) withdrawFromProvider(ctx context.Context, msg *types.MsgWith
 					ms.k.DecrementActiveLeaseCount(&creditAccount, lease.Uuid)
 
 					// Release reservation for this lease (ACTIVE leases have reservations)
-					reservationAmount := types.GetLeaseReservationAmount(&lease, params.MinLeaseDuration)
-					creditAccount.ReservedAmounts = types.SubtractReservation(creditAccount.ReservedAmounts, reservationAmount)
+					ms.k.ReleaseLeaseReservation(&creditAccount, &lease, params.MinLeaseDuration)
 
 					if setErr := ms.k.SetCreditAccount(cacheCtx, creditAccount); setErr != nil {
 						ms.k.Logger().Error("failed to update credit account",
@@ -1313,8 +1310,7 @@ func (ms msgServer) RejectLease(ctx context.Context, msg *types.MsgRejectLease) 
 		ms.k.DecrementPendingLeaseCount(&creditAccount, leases[i].Uuid)
 
 		// Release reservation for this lease (PENDING leases have reservations)
-		reservationAmount := types.GetLeaseReservationAmount(&leases[i], params.MinLeaseDuration)
-		creditAccount.ReservedAmounts = types.SubtractReservation(creditAccount.ReservedAmounts, reservationAmount)
+		ms.k.ReleaseLeaseReservation(&creditAccount, &leases[i], params.MinLeaseDuration)
 
 		creditAccounts[leases[i].Tenant] = creditAccount // Update map with new counts
 
@@ -1441,8 +1437,7 @@ func (ms msgServer) CancelLease(ctx context.Context, msg *types.MsgCancelLease) 
 		ms.k.DecrementPendingLeaseCount(&creditAccount, leases[i].Uuid)
 
 		// Release reservation for this lease (PENDING leases have reservations)
-		reservationAmount := types.GetLeaseReservationAmount(&leases[i], params.MinLeaseDuration)
-		creditAccount.ReservedAmounts = types.SubtractReservation(creditAccount.ReservedAmounts, reservationAmount)
+		ms.k.ReleaseLeaseReservation(&creditAccount, &leases[i], params.MinLeaseDuration)
 	}
 
 	// Save credit account with updated pending count and released reservations

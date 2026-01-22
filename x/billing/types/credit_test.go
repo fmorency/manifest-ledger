@@ -609,3 +609,364 @@ func TestGetLeaseReservationAmount_ParamChangeScenario(t *testing.T) {
 	// The stored duration ensures correct release
 	require.NotEqual(t, releaseAmount, wrongAmount)
 }
+
+// ============================================================================
+// ReleaseLeaseReservation Tests
+// ============================================================================
+
+func TestReleaseLeaseReservation(t *testing.T) {
+	tests := []struct {
+		name                       string
+		initialReserved            sdk.Coins
+		leaseItems                 []types.LeaseItem
+		minLeaseDurationAtCreation uint64
+		currentMinDuration         uint64
+		expectedReserved           sdk.Coins
+	}{
+		{
+			name:            "release single item reservation",
+			initialReserved: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(36000))),
+			leaseItems: []types.LeaseItem{
+				{SkuUuid: "sku1", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+			},
+			minLeaseDurationAtCreation: 3600,
+			currentMinDuration:         3600,
+			expectedReserved:           sdk.NewCoins(),
+		},
+		{
+			name:            "release partial reservation",
+			initialReserved: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(72000))), // Two leases worth
+			leaseItems: []types.LeaseItem{
+				{SkuUuid: "sku1", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+			},
+			minLeaseDurationAtCreation: 3600,
+			currentMinDuration:         3600,
+			expectedReserved:           sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(36000))), // One lease remaining
+		},
+		{
+			name:            "release uses stored duration, not current param",
+			initialReserved: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(36000))), // Reserved at creation
+			leaseItems: []types.LeaseItem{
+				{SkuUuid: "sku1", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+			},
+			minLeaseDurationAtCreation: 3600, // Was 3600 at creation
+			currentMinDuration:         1800, // Now 1800 - should be ignored
+			expectedReserved:           sdk.NewCoins(),
+		},
+		{
+			name: "release multi-denom reservation",
+			initialReserved: sdk.NewCoins(
+				sdk.NewCoin("upwr", math.NewInt(36000)),
+				sdk.NewCoin("uatom", math.NewInt(72000)),
+			),
+			leaseItems: []types.LeaseItem{
+				{SkuUuid: "sku1", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+				{SkuUuid: "sku2", Quantity: 2, LockedPrice: sdk.NewCoin("uatom", math.NewInt(10))},
+			},
+			minLeaseDurationAtCreation: 3600,
+			currentMinDuration:         3600,
+			expectedReserved:           sdk.NewCoins(),
+		},
+		{
+			name:            "release with multiple quantity",
+			initialReserved: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(180000))), // 10 * 5 * 3600
+			leaseItems: []types.LeaseItem{
+				{SkuUuid: "sku1", Quantity: 5, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+			},
+			minLeaseDurationAtCreation: 3600,
+			currentMinDuration:         3600,
+			expectedReserved:           sdk.NewCoins(),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			creditAccount := &types.CreditAccount{
+				Tenant:          "manifest1tenant",
+				CreditAddress:   "manifest1credit",
+				ReservedAmounts: tc.initialReserved,
+			}
+
+			lease := &types.Lease{
+				Uuid:                       "lease-uuid",
+				Tenant:                     "manifest1tenant",
+				Items:                      tc.leaseItems,
+				MinLeaseDurationAtCreation: tc.minLeaseDurationAtCreation,
+			}
+
+			// Call the helper function
+			types.ReleaseLeaseReservation(creditAccount, lease, tc.currentMinDuration)
+
+			// Verify the credit account's reserved amounts were updated
+			require.True(t, tc.expectedReserved.Equal(creditAccount.ReservedAmounts),
+				"expected %s, got %s", tc.expectedReserved.String(), creditAccount.ReservedAmounts.String())
+		})
+	}
+}
+
+// ============================================================================
+// CheckReservationRelease Tests
+// ============================================================================
+
+func TestCheckReservationRelease(t *testing.T) {
+	tests := []struct {
+		name              string
+		reserved          sdk.Coins
+		toRelease         sdk.Coins
+		expectedUnderflow map[string]math.Int
+	}{
+		{
+			name:              "no underflow - exact match",
+			reserved:          sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(1000))),
+			toRelease:         sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(1000))),
+			expectedUnderflow: map[string]math.Int{},
+		},
+		{
+			name:              "no underflow - releasing less than reserved",
+			reserved:          sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(1000))),
+			toRelease:         sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(500))),
+			expectedUnderflow: map[string]math.Int{},
+		},
+		{
+			name:              "underflow - releasing more than reserved",
+			reserved:          sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(500))),
+			toRelease:         sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(1000))),
+			expectedUnderflow: map[string]math.Int{"upwr": math.NewInt(500)},
+		},
+		{
+			name:              "underflow - denom not in reserved",
+			reserved:          sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(1000))),
+			toRelease:         sdk.NewCoins(sdk.NewCoin("uatom", math.NewInt(500))),
+			expectedUnderflow: map[string]math.Int{"uatom": math.NewInt(500)},
+		},
+		{
+			name:     "multi-denom - partial underflow",
+			reserved: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(1000)), sdk.NewCoin("uatom", math.NewInt(200))),
+			toRelease: sdk.NewCoins(
+				sdk.NewCoin("upwr", math.NewInt(500)),  // OK
+				sdk.NewCoin("uatom", math.NewInt(500)), // Underflow by 300
+			),
+			expectedUnderflow: map[string]math.Int{"uatom": math.NewInt(300)},
+		},
+		{
+			name:              "empty reserved - any release is underflow",
+			reserved:          sdk.NewCoins(),
+			toRelease:         sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(100))),
+			expectedUnderflow: map[string]math.Int{"upwr": math.NewInt(100)},
+		},
+		{
+			name:              "empty release - no underflow",
+			reserved:          sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(1000))),
+			toRelease:         sdk.NewCoins(),
+			expectedUnderflow: map[string]math.Int{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := types.CheckReservationRelease(tc.reserved, tc.toRelease)
+
+			require.Equal(t, len(tc.expectedUnderflow), len(result),
+				"expected %d underflows, got %d", len(tc.expectedUnderflow), len(result))
+
+			for denom, expectedAmount := range tc.expectedUnderflow {
+				actualAmount, ok := result[denom]
+				require.True(t, ok, "expected underflow for denom %s", denom)
+				require.True(t, expectedAmount.Equal(actualAmount),
+					"denom %s: expected underflow %s, got %s", denom, expectedAmount.String(), actualAmount.String())
+			}
+		})
+	}
+}
+
+// ============================================================================
+// CalculateExpectedReservationsByTenant Tests
+// ============================================================================
+
+func TestCalculateExpectedReservationsByTenant(t *testing.T) {
+	tenant1 := "manifest1tenant1"
+	tenant2 := "manifest1tenant2"
+	minDuration := uint64(3600)
+
+	tests := []struct {
+		name     string
+		leases   []types.Lease
+		expected map[string]sdk.Coins
+	}{
+		{
+			name:     "empty leases",
+			leases:   []types.Lease{},
+			expected: map[string]sdk.Coins{},
+		},
+		{
+			name: "single active lease",
+			leases: []types.Lease{
+				{
+					Uuid:   "lease1",
+					Tenant: tenant1,
+					State:  types.LEASE_STATE_ACTIVE,
+					Items: []types.LeaseItem{
+						{SkuUuid: "sku1", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+					},
+				},
+			},
+			expected: map[string]sdk.Coins{
+				tenant1: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(36000))), // 10 * 1 * 3600
+			},
+		},
+		{
+			name: "single pending lease",
+			leases: []types.Lease{
+				{
+					Uuid:   "lease1",
+					Tenant: tenant1,
+					State:  types.LEASE_STATE_PENDING,
+					Items: []types.LeaseItem{
+						{SkuUuid: "sku1", Quantity: 2, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+					},
+				},
+			},
+			expected: map[string]sdk.Coins{
+				tenant1: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(72000))), // 10 * 2 * 3600
+			},
+		},
+		{
+			name: "closed lease - no reservation",
+			leases: []types.Lease{
+				{
+					Uuid:   "lease1",
+					Tenant: tenant1,
+					State:  types.LEASE_STATE_CLOSED,
+					Items: []types.LeaseItem{
+						{SkuUuid: "sku1", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+					},
+				},
+			},
+			expected: map[string]sdk.Coins{},
+		},
+		{
+			name: "rejected lease - no reservation",
+			leases: []types.Lease{
+				{
+					Uuid:   "lease1",
+					Tenant: tenant1,
+					State:  types.LEASE_STATE_REJECTED,
+					Items: []types.LeaseItem{
+						{SkuUuid: "sku1", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+					},
+				},
+			},
+			expected: map[string]sdk.Coins{},
+		},
+		{
+			name: "multiple leases same tenant",
+			leases: []types.Lease{
+				{
+					Uuid:   "lease1",
+					Tenant: tenant1,
+					State:  types.LEASE_STATE_ACTIVE,
+					Items: []types.LeaseItem{
+						{SkuUuid: "sku1", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+					},
+				},
+				{
+					Uuid:   "lease2",
+					Tenant: tenant1,
+					State:  types.LEASE_STATE_PENDING,
+					Items: []types.LeaseItem{
+						{SkuUuid: "sku2", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(20))},
+					},
+				},
+			},
+			expected: map[string]sdk.Coins{
+				tenant1: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(108000))), // (10 + 20) * 1 * 3600
+			},
+		},
+		{
+			name: "multiple tenants",
+			leases: []types.Lease{
+				{
+					Uuid:   "lease1",
+					Tenant: tenant1,
+					State:  types.LEASE_STATE_ACTIVE,
+					Items: []types.LeaseItem{
+						{SkuUuid: "sku1", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+					},
+				},
+				{
+					Uuid:   "lease2",
+					Tenant: tenant2,
+					State:  types.LEASE_STATE_ACTIVE,
+					Items: []types.LeaseItem{
+						{SkuUuid: "sku2", Quantity: 2, LockedPrice: sdk.NewCoin("upwr", math.NewInt(15))},
+					},
+				},
+			},
+			expected: map[string]sdk.Coins{
+				tenant1: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(36000))),  // 10 * 1 * 3600
+				tenant2: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(108000))), // 15 * 2 * 3600
+			},
+		},
+		{
+			name: "lease with stored min_lease_duration_at_creation",
+			leases: []types.Lease{
+				{
+					Uuid:   "lease1",
+					Tenant: tenant1,
+					State:  types.LEASE_STATE_ACTIVE,
+					Items: []types.LeaseItem{
+						{SkuUuid: "sku1", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))},
+					},
+					MinLeaseDurationAtCreation: 7200, // Override default 3600
+				},
+			},
+			expected: map[string]sdk.Coins{
+				tenant1: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(72000))), // 10 * 1 * 7200
+			},
+		},
+		{
+			name: "mixed states - only pending and active count",
+			leases: []types.Lease{
+				{
+					Uuid: "lease1", Tenant: tenant1, State: types.LEASE_STATE_PENDING,
+					Items: []types.LeaseItem{{SkuUuid: "sku1", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))}},
+				},
+				{
+					Uuid: "lease2", Tenant: tenant1, State: types.LEASE_STATE_ACTIVE,
+					Items: []types.LeaseItem{{SkuUuid: "sku2", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))}},
+				},
+				{
+					Uuid: "lease3", Tenant: tenant1, State: types.LEASE_STATE_CLOSED,
+					Items: []types.LeaseItem{{SkuUuid: "sku3", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))}},
+				},
+				{
+					Uuid: "lease4", Tenant: tenant1, State: types.LEASE_STATE_REJECTED,
+					Items: []types.LeaseItem{{SkuUuid: "sku4", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))}},
+				},
+				{
+					Uuid: "lease5", Tenant: tenant1, State: types.LEASE_STATE_EXPIRED,
+					Items: []types.LeaseItem{{SkuUuid: "sku5", Quantity: 1, LockedPrice: sdk.NewCoin("upwr", math.NewInt(10))}},
+				},
+			},
+			expected: map[string]sdk.Coins{
+				tenant1: sdk.NewCoins(sdk.NewCoin("upwr", math.NewInt(72000))), // Only 2 leases: (10 + 10) * 1 * 3600
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := types.CalculateExpectedReservationsByTenant(tc.leases, minDuration)
+
+			require.Equal(t, len(tc.expected), len(result),
+				"expected %d tenants, got %d", len(tc.expected), len(result))
+
+			for tenant, expectedCoins := range tc.expected {
+				actualCoins, ok := result[tenant]
+				require.True(t, ok, "expected tenant %s in result", tenant)
+				require.True(t, expectedCoins.Equal(actualCoins),
+					"tenant %s: expected %s, got %s", tenant, expectedCoins.String(), actualCoins.String())
+			}
+		})
+	}
+}
