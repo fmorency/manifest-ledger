@@ -92,6 +92,9 @@ func (gs *GenesisState) Validate() error {
 			return ErrInvalidMetaHash.Wrapf("lease %s has meta_hash exceeding maximum length of %d bytes", lease.Uuid, MaxMetaHashLength)
 		}
 
+		// Note: min_lease_duration_at_creation is a uint64 and doesn't require validation.
+		// Zero value is valid for legacy leases (will fall back to current param).
+
 		// For inactive leases, validate closed_at is set
 		if lease.State == LEASE_STATE_CLOSED {
 			if lease.ClosedAt == nil || lease.ClosedAt.IsZero() {
@@ -130,6 +133,11 @@ func (gs *GenesisState) Validate() error {
 		if ca.CreditAddress != expectedCreditAddr.String() {
 			return ErrInvalidCreditOperation.Wrapf("credit account for %s has mismatched credit_address: got %s, expected %s",
 				ca.Tenant, ca.CreditAddress, expectedCreditAddr.String())
+		}
+
+		// Validate reserved_amounts if present
+		if !ca.ReservedAmounts.IsValid() {
+			return ErrInvalidCreditOperation.Wrapf("credit account for %s has invalid reserved_amounts", ca.Tenant)
 		}
 
 		// Balance is tracked in bank module, no validation needed here

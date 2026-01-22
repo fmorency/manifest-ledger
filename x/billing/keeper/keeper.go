@@ -955,6 +955,12 @@ func (k *Keeper) ExpirePendingLease(ctx context.Context, lease *types.Lease) err
 		return types.ErrLeaseNotPending.Wrapf("lease %s is not pending", lease.Uuid)
 	}
 
+	// Get params for reservation calculation
+	params, err := k.GetParams(ctx)
+	if err != nil {
+		return err
+	}
+
 	// Use CacheContext for atomic state changes
 	cacheCtx, write := sdkCtx.CacheContext()
 
@@ -966,7 +972,7 @@ func (k *Keeper) ExpirePendingLease(ctx context.Context, lease *types.Lease) err
 		return err
 	}
 
-	// Decrement pending lease count in credit account
+	// Decrement pending lease count and release reservation in credit account
 	creditAccount, err := k.GetCreditAccount(cacheCtx, lease.Tenant)
 	if err != nil {
 		// Log warning - a pending lease should always have a credit account
@@ -976,6 +982,11 @@ func (k *Keeper) ExpirePendingLease(ctx context.Context, lease *types.Lease) err
 		)
 	} else {
 		k.DecrementPendingLeaseCount(&creditAccount, lease.Uuid)
+
+		// Release reservation for this lease (PENDING leases have reservations)
+		reservationAmount := types.GetLeaseReservationAmount(lease, params.MinLeaseDuration)
+		creditAccount.ReservedAmounts = types.SubtractReservation(creditAccount.ReservedAmounts, reservationAmount)
+
 		if err := k.SetCreditAccount(cacheCtx, creditAccount); err != nil {
 			return err
 		}
