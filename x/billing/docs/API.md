@@ -1428,10 +1428,10 @@ The billing module emits the following events for state changes:
 | `batch_cancelled` | lease_count, tenant, cancelled_by | Batch summary when multiple leases cancelled |
 | `lease_expired` | lease_uuid, tenant, provider_uuid, reason | Pending lease expired |
 | `lease_closed` | lease_uuid, tenant, provider_uuid, settled_amounts, closed_by, duration_seconds, active_lease_count, closure_reason (optional) | Lease closed manually |
-| `batch_closed` | lease_count, closed_by | Batch summary when multiple leases closed |
-| `lease_auto_closed` | lease_uuid, tenant, provider_uuid, settled_amounts, reason | Lease auto-closed due to credit exhaustion |
+| `batch_closed` | lease_count, closed_by, settled_amounts | Batch summary when multiple leases closed |
+| `lease_auto_closed` | lease_uuid, tenant, provider_uuid, reason | Lease auto-closed due to credit exhaustion |
 | `provider_withdraw` | lease_uuid, provider_uuid, payout_address | Provider withdrawal from single lease |
-| `batch_withdraw` | lease_count, provider_uuid, amount, payout_address | Batch summary when multiple leases withdrawn from |
+| `batch_withdraw` | lease_count, provider_uuid, amount, payout_address, auto_closed | Batch summary when multiple leases withdrawn from |
 | `params_updated` | | Module parameters updated |
 
 **Special Case - Withdrawal Auto-Close:** When a `MsgWithdraw` operation discovers the lease's credit is exhausted (balance = 0), it automatically closes the lease. In this case, the `provider_withdraw` event includes an additional `auto_closed: "true"` attribute and `amount: "0"` to indicate no funds were transferred. Note that the `payout_address` attribute is omitted in this case since no transfer occurred.

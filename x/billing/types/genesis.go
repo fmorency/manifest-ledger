@@ -136,14 +136,14 @@ func (gs *GenesisState) Validate() error {
 	// Validate credit accounts
 	seenTenants := make(map[string]bool)
 	for _, ca := range gs.CreditAccounts {
+		if ca.Tenant == "" {
+			return ErrInvalidCreditOperation.Wrap("credit account has empty tenant")
+		}
+
 		if seenTenants[ca.Tenant] {
 			return ErrInvalidCreditOperation.Wrapf("duplicate credit account for tenant: %s", ca.Tenant)
 		}
 		seenTenants[ca.Tenant] = true
-
-		if ca.Tenant == "" {
-			return ErrInvalidCreditOperation.Wrap("credit account has empty tenant")
-		}
 
 		if _, err := sdk.AccAddressFromBech32(ca.Tenant); err != nil {
 			return ErrInvalidCreditOperation.Wrapf("credit account has invalid tenant address: %s", err)
