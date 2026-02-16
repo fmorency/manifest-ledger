@@ -20,6 +20,7 @@ type LeaseItemJSON struct {
 	SkuUuid     string   `json:"sku_uuid,omitempty"`
 	Quantity    string   `json:"quantity,omitempty"`
 	LockedPrice sdk.Coin `json:"locked_price"`
+	ServiceName string   `json:"service_name,omitempty"`
 }
 
 // LeaseJSON is a JSON-compatible version of Lease.

@@ -68,6 +68,7 @@ func (gs *GenesisState) Validate() error {
 			return ErrInvalidLease.Wrapf("lease %s has no items", lease.Uuid)
 		}
 
+		hasServiceName := 0
 		for i, item := range lease.Items {
 			if item.SkuUuid == "" {
 				return ErrInvalidLease.Wrapf("lease %s item %d has empty sku_uuid", lease.Uuid, i)
@@ -80,6 +81,26 @@ func (gs *GenesisState) Validate() error {
 			}
 			if !item.LockedPrice.IsValid() || item.LockedPrice.IsZero() {
 				return ErrInvalidLease.Wrapf("lease %s item %d has invalid locked_price", lease.Uuid, i)
+			}
+			if item.ServiceName != "" {
+				hasServiceName++
+			}
+		}
+
+		// Validate service_name consistency: all-or-nothing
+		if hasServiceName > 0 && hasServiceName != len(lease.Items) {
+			return ErrInvalidServiceName.Wrapf("lease %s: all items must have service_name or none", lease.Uuid)
+		}
+		if hasServiceName > 0 {
+			seenNames := make(map[string]bool, len(lease.Items))
+			for i, item := range lease.Items {
+				if !IsValidDNSLabel(item.ServiceName) {
+					return ErrInvalidServiceName.Wrapf("lease %s item %d has invalid service_name: %q", lease.Uuid, i, item.ServiceName)
+				}
+				if seenNames[item.ServiceName] {
+					return ErrInvalidServiceName.Wrapf("lease %s has duplicate service_name %q", lease.Uuid, item.ServiceName)
+				}
+				seenNames[item.ServiceName] = true
 			}
 		}
 

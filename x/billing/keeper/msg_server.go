@@ -214,6 +214,7 @@ func (ms msgServer) createLeaseInternal(ctx context.Context, tenant string, item
 			SkuUuid:     inputItem.SkuUuid,
 			Quantity:    inputItem.Quantity,
 			LockedPrice: lockedPricePerSecond,
+			ServiceName: inputItem.ServiceName,
 		})
 	}
 
