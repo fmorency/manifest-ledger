@@ -102,6 +102,15 @@ func (gs *GenesisState) Validate() error {
 				}
 				seenNames[item.ServiceName] = true
 			}
+		} else {
+			// Legacy mode: enforce sku_uuid uniqueness.
+			seenSKUs := make(map[string]bool, len(lease.Items))
+			for _, item := range lease.Items {
+				if seenSKUs[item.SkuUuid] {
+					return ErrDuplicateSKU.Wrapf("lease %s has duplicate sku_uuid %s", lease.Uuid, item.SkuUuid)
+				}
+				seenSKUs[item.SkuUuid] = true
+			}
 		}
 
 		if lease.State == LEASE_STATE_UNSPECIFIED {

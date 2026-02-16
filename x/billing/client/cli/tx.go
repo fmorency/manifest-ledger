@@ -64,6 +64,38 @@ func parseMetaHashFlag(cmd *cobra.Command) ([]byte, error) {
 	return metaHash, nil
 }
 
+// parseLeaseItemInputs parses CLI arguments into LeaseItemInput values.
+// Format: sku_uuid:quantity or sku_uuid:quantity:service_name
+func parseLeaseItemInputs(args []string) ([]types.LeaseItemInput, error) {
+	items := make([]types.LeaseItemInput, 0, len(args))
+	for _, arg := range args {
+		parts := strings.SplitN(arg, ":", 3)
+		if len(parts) < 2 {
+			return nil, fmt.Errorf("invalid item format '%s': expected sku_uuid:quantity[:service_name]", arg)
+		}
+		skuUUID := parts[0]
+		if !pkguuid.IsValidUUID(skuUUID) {
+			return nil, fmt.Errorf("invalid sku_uuid format: %s", skuUUID)
+		}
+		quantity, err := strconv.ParseUint(parts[1], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid quantity in '%s': %w", arg, err)
+		}
+		item := types.LeaseItemInput{
+			SkuUuid:  skuUUID,
+			Quantity: quantity,
+		}
+		if len(parts) == 3 {
+			if parts[2] == "" {
+				return nil, fmt.Errorf("invalid item format '%s': service_name cannot be empty (omit the trailing colon for legacy mode)", arg)
+			}
+			item.ServiceName = parts[2]
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
 // NewFundCreditCmd returns the command to fund a credit account.
 func NewFundCreditCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -125,28 +157,9 @@ create-lease 01902a9b-1234-7000-8000-000000000001:1 --meta-hash a1b2c3d4e5f6... 
 				return err
 			}
 
-			items := make([]types.LeaseItemInput, 0, len(args))
-			for _, arg := range args {
-				parts := strings.SplitN(arg, ":", 3)
-				if len(parts) < 2 {
-					return fmt.Errorf("invalid item format '%s': expected sku_uuid:quantity[:service_name]", arg)
-				}
-				skuUUID := parts[0]
-				if !pkguuid.IsValidUUID(skuUUID) {
-					return fmt.Errorf("invalid sku_uuid format: %s", skuUUID)
-				}
-				quantity, err := strconv.ParseUint(parts[1], 10, 64)
-				if err != nil {
-					return fmt.Errorf("invalid quantity in '%s': %w", arg, err)
-				}
-				item := types.LeaseItemInput{
-					SkuUuid:  skuUUID,
-					Quantity: quantity,
-				}
-				if len(parts) == 3 {
-					item.ServiceName = parts[2]
-				}
-				items = append(items, item)
+			items, err := parseLeaseItemInputs(args)
+			if err != nil {
+				return err
 			}
 
 			// Parse optional meta_hash
@@ -198,28 +211,9 @@ create-lease-for-tenant manifest1abc... 01902a9b-1234-7000-8000-000000000001:1 -
 				return fmt.Errorf("invalid tenant address: %w", err)
 			}
 
-			items := make([]types.LeaseItemInput, 0, len(args)-1)
-			for _, arg := range args[1:] {
-				parts := strings.SplitN(arg, ":", 3)
-				if len(parts) < 2 {
-					return fmt.Errorf("invalid item format '%s': expected sku_uuid:quantity[:service_name]", arg)
-				}
-				skuUUID := parts[0]
-				if !pkguuid.IsValidUUID(skuUUID) {
-					return fmt.Errorf("invalid sku_uuid format: %s", skuUUID)
-				}
-				quantity, err := strconv.ParseUint(parts[1], 10, 64)
-				if err != nil {
-					return fmt.Errorf("invalid quantity in '%s': %w", arg, err)
-				}
-				item := types.LeaseItemInput{
-					SkuUuid:  skuUUID,
-					Quantity: quantity,
-				}
-				if len(parts) == 3 {
-					item.ServiceName = parts[2]
-				}
-				items = append(items, item)
+			items, err := parseLeaseItemInputs(args[1:])
+			if err != nil {
+				return err
 			}
 
 			// Parse optional meta_hash

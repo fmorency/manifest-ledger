@@ -135,8 +135,11 @@ Individual line items within a lease:
 | `sku_uuid` | `string` | Reference to SKU (UUIDv7) |
 | `quantity` | `uint64` | Number of units (e.g., 5 instances) |
 | `locked_price` | `Coin` | Per-second price locked at lease creation (includes denom) |
+| `service_name` | `string` | Optional RFC 1123 DNS label for stack deployments (1-63 lowercase alphanumeric/hyphens) |
 
 **Note**: The `locked_price` is pre-computed at lease creation as the per-second rate for billing calculations. This is derived from the SKU's base price and unit at the time of lease creation. The denomination is preserved from the SKU's `base_price`, enabling multi-denom billing.
+
+**Service Names**: When `service_name` is set, all items in the lease must have one (all-or-nothing). Uniqueness shifts from `sku_uuid` to `service_name`, allowing the same SKU to appear multiple times for different named services (e.g., "web" and "db" both using a docker-small SKU). This enables stack deployments where the off-chain orchestrator maps each service to its container.
 
 ### LeaseState Enum
 
